@@ -3,22 +3,12 @@ package hex.genmodel.algos.tree;
 import hex.genmodel.MojoModel;
 import hex.genmodel.algos.drf.DrfMojoModel;
 import hex.genmodel.algos.gbm.GbmMojoModel;
-import hex.genmodel.utils.ByteBufferWrapper;
-import hex.genmodel.utils.GenmodelBitSet;
-
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Common ancestor for {@link DrfMojoModel} and {@link GbmMojoModel}.
  * See also: `hex.tree.SharedTreeModel` and `hex.tree.TreeVisitor` classes.
  */
 public abstract class SharedTreeMojoModel extends MojoModel implements SharedTreeGraphConverter{
-    private static final int NsdNaVsRest = NaSplitDir.NAvsREST.value();
-    private static final int NsdNaLeft = NaSplitDir.NALeft.value();
-    private static final int NsdLeft = NaSplitDir.Left.value();
-
     protected double _mojo_version;
     private ScoreTree _scoreTree;
 
@@ -127,186 +117,16 @@ public abstract class SharedTreeMojoModel extends MojoModel implements SharedTre
         }
     }
 
-    public static class LeafDecisionPathTracker implements DecisionPathTracker<LeafDecisionPathTracker> {
-        private final AuxInfoLightReader _auxInfo;
-        private boolean _wentRight = false; // Was the last step _right_?
-
-        // OUT
-        private int _nodeId = 0; // Returned when the tree is empty (consistent with SharedTreeNode of an empty tree)
-
-        private LeafDecisionPathTracker(byte[] auxTree) {
-          _auxInfo = new AuxInfoLightReader(new ByteBufferWrapper(auxTree));
-        }
-
-        @Override
-        public boolean go(int depth, boolean right) {
-          if (!_auxInfo.hasNext()) {
-            assert _wentRight || depth == 0; // this can only happen if previous step was _right_ or the tree has no nodes
-            return false;
-          }
-          _auxInfo.readNext();
-          if (right) {
-            if (_wentRight && _nodeId != _auxInfo._nid)
-              return false;
-            _nodeId = _auxInfo.getRightNodeIdAndSkipNode();
-            _auxInfo.skipNodes(_auxInfo._numLeftChildren);
-            _wentRight = true;
-          } else { // left
-            _wentRight = false;
-            if (_auxInfo._numLeftChildren == 0) {
-              _nodeId = _auxInfo.getLeftNodeIdAndSkipNode();
-              return false;
-            } else {
-              _auxInfo.skipNode(); // proceed to next _left_ node
-            }
-          }
-          return true;
-        }
-
-        @Override
-        public LeafDecisionPathTracker terminate() {
-          return this;
-        }
-
-        final int getLeafNodeId() {
-          return _nodeId;
-        }
-    }
-
     public static <T> T getDecisionPath(double leafAssignment, DecisionPathTracker<T> tr) {
-        long l = Double.doubleToRawLongBits(leafAssignment);
-        for (int i = 0; i < 64; ++i) {
-            boolean right = ((l>>i) & 0x1L) == 1;
-            if (! tr.go(i, right)) break;
-        }
-        return tr.terminate();
+      return ScoreTree2.getDecisionPath(leafAssignment, tr);
     }
 
     public static String getDecisionPath(double leafAssignment) {
-        return getDecisionPath(leafAssignment, new StringDecisionPathTracker());
+      return ScoreTree2.getDecisionPath(leafAssignment);
     }
 
     public static int getLeafNodeId(double leafAssignment, byte[] auxTree) {
-        LeafDecisionPathTracker tr = new LeafDecisionPathTracker(auxTree);
-        return getDecisionPath(leafAssignment, tr).getLeafNodeId();
-    }
-
-    //------------------------------------------------------------------------------------------------------------------
-    // Computing a Tree Graph
-    //------------------------------------------------------------------------------------------------------------------
-
-    private static void computeTreeGraph(SharedTreeSubgraph sg, SharedTreeNode node, byte[] tree, ByteBufferWrapper ab, HashMap<Integer, AuxInfo> auxMap,
-                                         String names[], String[][] domains) {
-        int nodeType = ab.get1U();
-        int colId = ab.get2();
-        if (colId == 65535) {
-            float leafValue = ab.get4f();
-            node.setPredValue(leafValue);
-            return;
-        }
-        String colName = names[colId];
-        node.setCol(colId, colName);
-
-        int naSplitDir = ab.get1U();
-        boolean naVsRest = naSplitDir == NsdNaVsRest;
-        boolean leftward = naSplitDir == NsdNaLeft || naSplitDir == NsdLeft;
-        node.setLeftward(leftward);
-        node.setNaVsRest(naVsRest);
-
-        int lmask = (nodeType & 51);
-        int equal = (nodeType & 12);  // Can be one of 0, 8, 12
-        assert equal != 4;  // no longer supported
-
-        if (!naVsRest) {
-            // Extract value or group to split on
-            if (equal == 0) {
-                // Standard float-compare test (either < or ==)
-                float splitVal = ab.get4f();  // Get the float to compare
-                node.setSplitValue(splitVal);
-            } else {
-                // Bitset test
-                GenmodelBitSet bs = new GenmodelBitSet(0);
-                if (equal == 8)
-                    bs.fill2(tree, ab);
-                else
-                    bs.fill3(tree, ab);
-                node.setBitset(domains[colId], bs);
-            }
-        }
-
-        AuxInfo auxInfo = auxMap.get(node.getNodeNumber());
-
-        // go RIGHT
-        {
-            ByteBufferWrapper ab2 = new ByteBufferWrapper(tree);
-            ab2.skip(ab.position());
-
-            switch (lmask) {
-                case 0:
-                    ab2.skip(ab2.get1U());
-                    break;
-                case 1:
-                    ab2.skip(ab2.get2());
-                    break;
-                case 2:
-                    ab2.skip(ab2.get3());
-                    break;
-                case 3:
-                    ab2.skip(ab2.get4());
-                    break;
-                case 48:
-                    ab2.skip(4);
-                    break;  // skip the prediction
-                default:
-                    assert false : "illegal lmask value " + lmask + " in tree " + Arrays.toString(tree);
-            }
-            int lmask2 = (nodeType & 0xC0) >> 2;  // Replace leftmask with the rightmask
-
-            SharedTreeNode newNode = sg.makeRightChildNode(node);
-            newNode.setWeight(auxInfo.weightR);
-            newNode.setNodeNumber(auxInfo.nidR);
-            newNode.setPredValue(auxInfo.predR);
-            newNode.setSquaredError(auxInfo.sqErrR);
-            if ((lmask2 & 16) != 0) {
-                float leafValue = ab2.get4f();
-                newNode.setPredValue(leafValue);
-                auxInfo.predR = leafValue;
-            }
-            else {
-                computeTreeGraph(sg, newNode, tree, ab2, auxMap, names, domains);
-            }
-        }
-
-        // go LEFT
-        {
-            ByteBufferWrapper ab2 = new ByteBufferWrapper(tree);
-            ab2.skip(ab.position());
-
-            if (lmask <= 3)
-                ab2.skip(lmask + 1);
-
-            SharedTreeNode newNode = sg.makeLeftChildNode(node);
-            newNode.setWeight(auxInfo.weightL);
-            newNode.setNodeNumber(auxInfo.nidL);
-            newNode.setPredValue(auxInfo.predL);
-            newNode.setSquaredError(auxInfo.sqErrL);
-            if ((lmask & 16) != 0) {
-                float leafValue = ab2.get4f();
-                newNode.setPredValue(leafValue);
-                auxInfo.predL = leafValue;
-            }
-            else {
-                computeTreeGraph(sg, newNode, tree, ab2, auxMap, names, domains);
-            }
-        }
-        if (node.getNodeNumber() == 0) {
-          float p = (float)(((double)auxInfo.predL*(double)auxInfo.weightL + (double)auxInfo.predR*(double)auxInfo.weightR)/((double)auxInfo.weightL + (double)auxInfo.weightR));
-          if (Math.abs(p) < 1e-7) p = 0;
-          node.setPredValue(p);
-          node.setSquaredError(auxInfo.sqErrR + auxInfo.sqErrL);
-          node.setWeight(auxInfo.weightL + auxInfo.weightR);
-        }
-        checkConsistency(auxInfo, node);
+      return ScoreTree2.getLeafNodeId(leafAssignment, auxTree);
     }
 
     /**
@@ -335,7 +155,7 @@ public abstract class SharedTreeMojoModel extends MojoModel implements SharedTre
                 String[] domainValues = isSupervised() ? getDomainValues(getResponseIdx()) : null;
                 String treeName = treeName(j, i, domainValues);
                 SharedTreeSubgraph sg = g.makeSubgraph(treeName);
-                computeTreeGraph(sg, _compressed_trees[itree], _compressed_trees_aux[itree],
+                ScoreTree2.computeTreeGraph(sg, _compressed_trees[itree], _compressed_trees_aux[itree],
                         getNames(), getDomainValues());
             }
 
@@ -350,42 +170,8 @@ public abstract class SharedTreeMojoModel extends MojoModel implements SharedTre
     public static SharedTreeSubgraph computeTreeGraph(int treeNum, String treeName, byte[] tree, byte[] auxTreeInfo,
                                                       String names[], String[][] domains) {
       SharedTreeSubgraph sg = new SharedTreeSubgraph(treeNum, treeName);
-      computeTreeGraph(sg, tree, auxTreeInfo, names, domains);
+      ScoreTree2.computeTreeGraph(sg, tree, auxTreeInfo, names, domains);
       return sg;
-    }
-
-    private static void computeTreeGraph(SharedTreeSubgraph sg, byte[] tree, byte[] auxTreeInfo,
-                                         String names[], String[][] domains) {
-      SharedTreeNode node = sg.makeRootNode();
-      node.setSquaredError(Float.NaN);
-      node.setPredValue(Float.NaN);
-      ByteBufferWrapper ab = new ByteBufferWrapper(tree);
-      ByteBufferWrapper abAux = new ByteBufferWrapper(auxTreeInfo);
-      HashMap<Integer, AuxInfo> auxMap = readAuxInfos(abAux);
-      computeTreeGraph(sg, node, tree, ab, auxMap, names, domains);
-    }
-
-    private static HashMap<Integer, AuxInfo> readAuxInfos(ByteBufferWrapper abAux) {
-      HashMap<Integer, AuxInfo> auxMap = new HashMap<>();
-      Map<Integer, AuxInfo> nodeIdToParent = new HashMap<>();
-      nodeIdToParent.put(0, new AuxInfo());
-      boolean reservedFieldIsParentId = false; // In older H2O versions `reserved` field was used for parent id
-      while (abAux.hasRemaining()) {
-        AuxInfo auxInfo = new AuxInfo(abAux);
-        if (auxMap.size() == 0) {
-          reservedFieldIsParentId = auxInfo.reserved < 0; // `-1` indicates No Parent, reserved >= 0 indicates reserved is not used for parent ids!
-        }
-        AuxInfo parent = nodeIdToParent.get(auxInfo.nid);
-        if (parent == null)
-          throw new IllegalStateException("Parent for nodeId=" + auxInfo.nid + " not found.");
-        assert !reservedFieldIsParentId || parent.nid == auxInfo.reserved : "Corrupted Tree Info: parent nodes do not correspond (pid: " +
-                parent.nid + ", reserved: " + auxInfo.reserved + ")";
-        auxInfo.setPid(parent.nid);
-        nodeIdToParent.put(auxInfo.nidL, auxInfo);
-        nodeIdToParent.put(auxInfo.nidR, auxInfo);
-        auxMap.put(auxInfo.nid, auxInfo);
-      }
-      return auxMap;
     }
 
     public static String treeName(int groupIndex, int classIndex, String[] domainValues) {
@@ -396,134 +182,6 @@ public abstract class SharedTreeMojoModel extends MojoModel implements SharedTre
         }
       }
       return "Tree " + groupIndex + className;
-    }
-
-    // Please see AuxInfo for details of the serialized format
-    private static class AuxInfoLightReader {
-      private final ByteBufferWrapper _abAux;
-      int _nid;
-      int _numLeftChildren;
-
-      private AuxInfoLightReader(ByteBufferWrapper abAux) {
-        _abAux = abAux;
-      }
-
-      private void readNext() {
-        _nid = _abAux.get4();
-        _numLeftChildren = _abAux.get4();
-      }
-
-      private boolean hasNext() {
-        return _abAux.hasRemaining();
-      }
-
-      private int getLeftNodeIdAndSkipNode() {
-        _abAux.skip(4 * 6);
-        int n = _abAux.get4();
-        _abAux.skip(4);
-        return n;
-      }
-
-      private int getRightNodeIdAndSkipNode() {
-        _abAux.skip(4 * 7);
-        return _abAux.get4();
-      }
-
-      private void skipNode() {
-        _abAux.skip(AuxInfo.SIZE - 8);
-      }
-
-      private void skipNodes(int num) {
-        _abAux.skip(AuxInfo.SIZE * num);
-      }
-
-    }
-
-    static class AuxInfo {
-      private static int SIZE = 10 * 4;
-
-      private AuxInfo() {
-        nid = -1;
-        reserved = -1;
-      }
-
-      // Warning: any changes in this structure need to be reflected also in AuxInfoLightReader!!!
-      AuxInfo(ByteBufferWrapper abAux) {
-        // node ID
-        nid = abAux.get4();
-
-        // ignored - can contain either parent id or number of children (depending on a MOJO version)
-        reserved = abAux.get4();
-
-        //sum of observation weights (typically, that's just the count of observations)
-        weightL = abAux.get4f();
-        weightR = abAux.get4f();
-
-        //predicted values
-        predL   = abAux.get4f();
-        predR   = abAux.get4f();
-
-        //squared error
-        sqErrL  = abAux.get4f();
-        sqErrR  = abAux.get4f();
-
-        //node IDs (consistent with tree construction)
-        nidL = abAux.get4();
-        nidR = abAux.get4();
-      }
-
-      final void setPid(int parentId) {
-        pid = parentId;
-      }
-
-      @Override public String toString() {
-        return  "nid: " + nid + "\n" +
-                "pid: " + pid + "\n" +
-                "nidL: " + nidL + "\n" +
-                "nidR: " + nidR + "\n" +
-                "weightL: " + weightL + "\n" +
-                "weightR: " + weightR + "\n" +
-                "predL: " + predL + "\n" +
-                "predR: " + predR + "\n" +
-                "sqErrL: " + sqErrL + "\n" +
-                "sqErrR: " + sqErrR + "\n" +
-                "reserved: " + reserved + "\n";
-      }
-
-      public int nid, pid, nidL, nidR;
-      private final int reserved;
-      public float weightL, weightR, predL, predR, sqErrL, sqErrR;
-    }
-
-    static void checkConsistency(AuxInfo auxInfo, SharedTreeNode node) {
-      boolean ok = true;
-      ok &= (auxInfo.nid == node.getNodeNumber());
-      double sum = 0;
-      if (node.leftChild!=null) {
-        ok &= (auxInfo.nidL == node.leftChild.getNodeNumber());
-        ok &= (auxInfo.weightL == node.leftChild.getWeight());
-        ok &= (auxInfo.predL == node.leftChild.predValue);
-        ok &= (auxInfo.sqErrL == node.leftChild.squaredError);
-        sum += node.leftChild.getWeight();
-      }
-      if (node.rightChild!=null) {
-        ok &= (auxInfo.nidR == node.rightChild.getNodeNumber());
-        ok &= (auxInfo.weightR == node.rightChild.getWeight());
-        ok &= (auxInfo.predR == node.rightChild.predValue);
-        ok &= (auxInfo.sqErrR == node.rightChild.squaredError);
-        sum += node.rightChild.getWeight();
-      }
-      if (node.parent!=null) {
-        ok &= (auxInfo.pid == node.parent.getNodeNumber());
-        ok &= (Math.abs(node.getWeight() - sum) < 1e-5 * (node.getWeight() + sum));
-      }
-      if (!ok) {
-        System.out.println("\nTree inconsistency found:");
-        node.print();
-        node.leftChild.print();
-        node.rightChild.print();
-        System.out.println(auxInfo.toString());
-      }
     }
 
     //------------------------------------------------------------------------------------------------------------------
