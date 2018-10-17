@@ -80,15 +80,9 @@ ansiColor('xterm') {
         def componentImages = []
         PYTHON_VERSIONS.each {version ->
             componentImages += "dev-python-${version}"
-            JDK_VERSIONS.each {jdkVersion ->
-                componentImages += "dev-python-${version}-jdk-${jdkVersion}"
-            }
         }
         R_VERSION.each {version ->
             componentImages += "dev-r-${version}"
-            JDK_VERSIONS.each {jdkVersion ->
-                componentImages += "dev-r-${version}-jdk-${jdkVersion}"
-            }
         }
         JDK_VERSIONS.each {version ->
             componentImages += "dev-jdk-${version}"
@@ -105,6 +99,19 @@ ansiColor('xterm') {
             ]
         )
         buildInParallel(pipelineContext, ["dev-release-gradle-${pipelineContext.getBuildConfig().getCurrentGradleVersion()}"])
+
+        def componentJdkImages = []
+        PYTHON_VERSIONS.each {version ->
+            JDK_VERSIONS.each {jdkVersion ->
+                componentJdkImages += "dev-python-${version}-jdk-${jdkVersion}"
+            }
+        }
+        R_VERSION.each {version ->
+            JDK_VERSIONS.each {jdkVersion ->
+                componentJdkImages += "dev-r-${version}-jdk-${jdkVersion}"
+            }
+        }
+        buildInParallel(pipelineContext, componentJdkImages)
     }
 }
 
