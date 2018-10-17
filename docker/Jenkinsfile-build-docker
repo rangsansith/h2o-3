@@ -22,7 +22,7 @@ GPU_SUFFIX = params.useGpu ? '-gpu' : ''
 UBUNTU_BASE_IMAGE = 'ubuntu:16.04'
 GPU_BASE_IMAGE = 'nvidia/cuda:9.0-cudnn7-devel-ubuntu16.04'
 
-JDK_VERSIONS = ['7', '8', '10', '11']
+JDK_VERSIONS = ['7', '8', /*'10',*/ '11']
 PYTHON_VERSIONS = ['2.7', '3.5', '3.6']
 R_VERSION = ['3.4.1', '3.3.3']
 
@@ -61,20 +61,8 @@ ansiColor('xterm') {
             }
         }
 
-        def devBaseStageName = 'Build dev-base'
-        buildSummary.stageWithSummary(devBaseStageName) {
-            node(DEFAULT_LABEL) {
-                buildSummary.refreshStage(devBaseStageName)
-                dir('dev-base') {
-                    deleteDir()
-                    unstash 'docker-sources'
-                    buildInParallel(pipelineContext, ['dev-base'])
-                }
-            }
-        }
-
+        buildInParallel(pipelineContext, ['dev-base'])
         buildInParallel(pipelineContext, ['dev-jdk-8-base', 'dev-jdk-others-base'])
-
         buildInParallel(pipelineContext, ['dev-python-base', 'dev-r-base'])
 
         def componentImages = []
@@ -94,7 +82,6 @@ ansiColor('xterm') {
         buildInParallel(
             pipelineContext,
             [
-                "dev-benchmark-gradle-${pipelineContext.getBuildConfig().getCurrentGradleVersion()}",
                 "dev-build-hadoop-gradle-${pipelineContext.getBuildConfig().getCurrentGradleVersion()}"
             ]
         )
