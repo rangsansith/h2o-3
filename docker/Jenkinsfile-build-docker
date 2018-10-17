@@ -80,9 +80,15 @@ ansiColor('xterm') {
         def componentImages = []
         PYTHON_VERSIONS.each {version ->
             componentImages += "dev-python-${version}"
+            JDK_VERSIONS.each {jdkVersion ->
+                componentImages += "dev-python-${version}-jdk-${jdkVersion}"
+            }
         }
         R_VERSION.each {version ->
             componentImages += "dev-r-${version}"
+            JDK_VERSIONS.each {jdkVersion ->
+                componentImages += "dev-r-${version}-jdk-${jdkVersion}"
+            }
         }
         JDK_VERSIONS.each {version ->
             componentImages += "dev-jdk-${version}"

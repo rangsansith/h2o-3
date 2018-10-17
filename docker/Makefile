@@ -138,7 +138,7 @@ ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
 	docker push docker.h2o.ai/opsh2oai/h2o-3/dev-python-$*$(GPU_SUFFIX):$(VERSION)
 endif
 
-ifneq ($(CI, 1)
+ifneq ($(CI), 1)
 dev-r-3.3.3-jdk-%: dev-r-3.3.3
 endif
 dev-r-3.3.3-jdk-%:
@@ -153,7 +153,7 @@ ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
 	docker push docker.h2o.ai/opsh2oai/h2o-3/dev-r-3.3.3-jdk-$*$(GPU_SUFFIX):$(VERSION)
 endif
 
-ifneq ($(CI, 1)
+ifneq ($(CI), 1)
 dev-r-3.4.1-jdk-%: dev-r-3.4.1
 endif
 dev-r-3.4.1-jdk-%:
