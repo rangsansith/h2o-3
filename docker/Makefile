@@ -79,6 +79,51 @@ ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
 endif
 
 ifneq ($(CI), 1)
+dev-python-2.7-jdk-%: dev-python-2.7
+endif
+dev-python-2.7-jdk-%:
+	docker build -t docker.h2o.ai/opsh2oai/h2o-3/dev-python-2.7-jdk-$*$(GPU_SUFFIX):$(VERSION) \
+		-f jenkins-images/Dockerfile-jdk-others \
+		--build-arg GPU_SUFFIX=$(GPU_SUFFIX) \
+		--build-arg FROM_VERSION=$(VERSION) \
+		--build-arg FROM_IMAGE=docker.h2o.ai/opsh2oai/h2o-3/dev-python-2.7 \
+		--build-arg JAVA_VERSION=$* \
+		.
+ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
+	docker push docker.h2o.ai/opsh2oai/h2o-3/dev-python-2.7-jdk-$*$(GPU_SUFFIX):$(VERSION)
+endif
+
+ifneq ($(CI), 1)
+dev-python-3.5-jdk-%: dev-python-3.5
+endif
+dev-python-3.5-jdk-%:
+	docker build -t docker.h2o.ai/opsh2oai/h2o-3/dev-python-3.5-jdk-$*$(GPU_SUFFIX):$(VERSION) \
+		-f jenkins-images/Dockerfile-jdk-others \
+		--build-arg GPU_SUFFIX=$(GPU_SUFFIX) \
+		--build-arg FROM_VERSION=$(VERSION) \
+		--build-arg FROM_IMAGE=docker.h2o.ai/opsh2oai/h2o-3/dev-python-3.5 \
+		--build-arg JAVA_VERSION=$* \
+		.
+ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
+	docker push docker.h2o.ai/opsh2oai/h2o-3/dev-python-3.5-jdk-$*$(GPU_SUFFIX):$(VERSION)
+endif
+
+ifneq ($(CI), 1)
+dev-python-3.6-jdk-%: dev-python-3.6
+endif
+dev-python-3.6-jdk-%:
+	docker build -t docker.h2o.ai/opsh2oai/h2o-3/dev-python-3.6-jdk-$*$(GPU_SUFFIX):$(VERSION) \
+		-f jenkins-images/Dockerfile-jdk-others \
+		--build-arg GPU_SUFFIX=$(GPU_SUFFIX) \
+		--build-arg FROM_VERSION=$(VERSION) \
+		--build-arg FROM_IMAGE=docker.h2o.ai/opsh2oai/h2o-3/dev-python-3.6 \
+		--build-arg JAVA_VERSION=$* \
+		.
+ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
+	docker push docker.h2o.ai/opsh2oai/h2o-3/dev-python-3.6-jdk-$*$(GPU_SUFFIX):$(VERSION)
+endif
+
+ifneq ($(CI), 1)
 dev-python-%: dev-python-base
 endif
 dev-python-%:
@@ -91,6 +136,36 @@ dev-python-%:
 		.
 ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
 	docker push docker.h2o.ai/opsh2oai/h2o-3/dev-python-$*$(GPU_SUFFIX):$(VERSION)
+endif
+
+ifneq ($(CI, 1)
+dev-r-3.3.3-jdk-%: dev-r-3.3.3
+endif
+dev-r-3.3.3-jdk-%:
+	docker build -t docker.h2o.ai/opsh2oai/h2o-3/dev-r-3.3.3-jdk-$*$(GPU_SUFFIX):$(VERSION) \
+		-f jenkins-images/Dockerfile-jdk-others \
+		--build-arg GPU_SUFFIX=$(GPU_SUFFIX) \
+		--build-arg FROM_VERSION=$(VERSION) \
+		--build-arg FROM_IMAGE=docker.h2o.ai/opsh2oai/h2o-3/dev-r-3.3.3 \
+		--build-arg JAVA_VERSION=$* \
+		.
+ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
+	docker push docker.h2o.ai/opsh2oai/h2o-3/dev-r-3.3.3-jdk-$*$(GPU_SUFFIX):$(VERSION)
+endif
+
+ifneq ($(CI, 1)
+dev-r-3.4.1-jdk-%: dev-r-3.4.1
+endif
+dev-r-3.4.1-jdk-%:
+	docker build -t docker.h2o.ai/opsh2oai/h2o-3/dev-r-3.4.1-jdk-$*$(GPU_SUFFIX):$(VERSION) \
+		-f jenkins-images/Dockerfile-jdk-others \
+		--build-arg GPU_SUFFIX=$(GPU_SUFFIX) \
+		--build-arg FROM_VERSION=$(VERSION) \
+		--build-arg FROM_IMAGE=docker.h2o.ai/opsh2oai/h2o-3/dev-r-3.4.1 \
+		--build-arg JAVA_VERSION=$* \
+		.
+ifeq ($(shell echo $(PUSH) | tr [:upper:] [:lower:] ),true)
+	docker push docker.h2o.ai/opsh2oai/h2o-3/dev-r-3.4.1-jdk-$*$(GPU_SUFFIX):$(VERSION)
 endif
 
 ifneq ($(CI), 1)
