@@ -1,4 +1,4 @@
-package water;
+package ai.h2o.jetty8;
 
 import org.eclipse.jetty.server.Handler;
 import org.eclipse.jetty.server.Request;
@@ -6,6 +6,8 @@ import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.handler.HandlerCollection;
 import org.eclipse.jetty.server.handler.HandlerWrapper;
 import org.eclipse.jetty.servlet.ServletContextHandler;
+import water.ExtensionManager;
+import water.H2O;
 import water.api.DatasetServlet;
 import water.api.NpsBinServlet;
 import water.api.PostFileServlet;
@@ -29,7 +31,7 @@ import java.util.List;
  * Embedded Jetty instance inside H2O.
  * This is intended to be a singleton per H2O node.
  */
-public class JettyHTTPD extends AbstractHTTPD {
+public class Jetty8HTTPD extends AbstractJetty8HTTPD {
   //------------------------------------------------------------------------------------------
   // Object-specific things.
   //------------------------------------------------------------------------------------------
@@ -38,7 +40,7 @@ public class JettyHTTPD extends AbstractHTTPD {
   /**
    * Create bare Jetty object.
    */
-  public JettyHTTPD() {
+  public Jetty8HTTPD() {
     super(H2O.ARGS);
   }
 

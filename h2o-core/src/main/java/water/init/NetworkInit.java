@@ -2,7 +2,6 @@ package water.init;
 
 import water.H2O;
 import water.H2ONode;
-import water.JettyHTTPD;
 import water.util.Log;
 import water.util.NetworkUtils;
 import water.util.StringUtils;

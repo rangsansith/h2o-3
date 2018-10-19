@@ -7,7 +7,6 @@ import org.apache.log4j.spi.LoggingEvent;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import water.H2O;
-import water.JettyHTTPD;
 import water.TestUtil;
 
 import javax.servlet.ServletOutputStream;
@@ -100,7 +99,7 @@ public class CustomHttpFilterTest extends TestUtil {
     });
 
     // start the request lifecycle
-    H2O.getJetty().getServer().getChildHandlersByClass(JettyHTTPD.GateHandler.class)[0].handle("/", null, request, response);
+//TODO    H2O.getServletContainer().getServer().getChildHandlersByClass(JettyHTTPD.GateHandler.class)[0].handle("/", null, request, response);
     new RequestServer().doGet(request, response);
 
   }

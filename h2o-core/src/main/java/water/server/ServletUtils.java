@@ -32,7 +32,7 @@ public class ServletUtils {
   }
 
   /**
-   * Called from {@link water.JettyHTTPD}.
+   * Called from JettyHTTPD.
    */
   public static void startRequestLifecycle() {
     _startMillis.set(System.currentTimeMillis());
