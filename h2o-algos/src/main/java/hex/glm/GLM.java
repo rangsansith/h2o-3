@@ -1440,7 +1440,7 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
     double l2pen = lambda*(1-alpha);
     double [] diagInv = MemoryManager.malloc8d(xx.length);
     for(int i = 0; i < diagInv.length; ++i)
-      diagInv[i] = 1.0/(xx[i][i] + l2pen);
+      diagInv[i] = 1.0/(xx[i][i] + l2pen); // store the hessian for each coefficient
     DataInfo activeData = _state.activeData();
     int [][] nzs = new int[activeData.numStart()][];
     int sparseCnt = 0;
@@ -1483,7 +1483,7 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
       maxDiff = 0;
       for (int i = 0; i < activeData._cats; ++i) {
         for(int j = activeData._catOffsets[i]; j < activeData._catOffsets[i+1]; ++j) { // can do in parallel
-          double b = bc.applyBounds(ADMM.shrinkage(grads[j], l1pen) * diagInv[j],j); // new beta value here
+          double b = bc.applyBounds(ADMM.shrinkage(grads[j], l1pen) * diagInv[j],j); // new beta value here with l1pen is applicable
           double bd = beta[j] - b;
           if(bd != 0) {
             double diff = bd*bd*xx[j][j];
