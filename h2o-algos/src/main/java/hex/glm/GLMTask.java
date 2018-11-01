@@ -519,6 +519,8 @@ public abstract class GLMTask  {
     final transient  double _currentLambda;
     final transient double _reg;
     protected final DataInfo _dinfo;
+    public double[] _invHessDiag; // store 1.0/diagonal of hessian matrix;
+    public boolean _calculateHess=false;  // will only calculate _invHessDiag if this is true
 
 
     protected GLMGradientTask(Key jobKey, DataInfo dinfo, double reg, double lambda, double[] beta){
@@ -528,7 +530,12 @@ public abstract class GLMTask  {
       _currentLambda = lambda;
 
     }
-    protected abstract void computeGradientMultipliers(double [] es, double [] ys, double [] ws);
+
+    public void set_calculateHess(boolean calculateHess) {
+      _calculateHess = calculateHess;
+    }
+
+    protected abstract void computeGradientMultipliers(double [] es, double [] ys, double [] ws, double[] esHess);
 
     private final void computeCategoricalEtas(Chunk [] chks, double [] etas, double [] vals, int [] ids) {
       // categoricals
@@ -550,7 +557,8 @@ public abstract class GLMTask  {
       }
     }
 
-    private final void computeCategoricalGrads(Chunk [] chks, double [] etas, double [] vals, int [] ids) {
+    private final void computeCategoricalGrads(Chunk [] chks, double [] etas, double [] vals, int [] ids,
+                                               double [] etasHess) {
       // categoricals
       for(int cid = 0; cid < _dinfo._cats; ++cid){
         Chunk c = chks[cid];
@@ -559,12 +567,14 @@ public abstract class GLMTask  {
           for(int i = 0; i < nvals; ++i){
             int id = _dinfo.getCategoricalId(cid,(int)vals[i]);
             if(id >=0) _gradient[id] += etas[ids[i]];
+            if ((id >=0) && _calculateHess) _invHessDiag[id] += etasHess[ids[i]];
           }
         } else {
           c.getIntegers(ids, 0, c._len,-1);
           for(int i = 0; i < ids.length; ++i){
             int id = _dinfo.getCategoricalId(cid,ids[i]);
             if(id >=0) _gradient[id] += etas[i];
+            if ((id >= 0) && _calculateHess) _invHessDiag[id] += etasHess[i];
           }
         }
       }
@@ -594,7 +604,7 @@ public abstract class GLMTask  {
       }
     }
 
-    private final void computeNumericGrads(Chunk [] chks, double [] etas, double [] vals, int [] ids) {
+    private final void computeNumericGrads(Chunk [] chks, double [] etas, double [] vals, int [] ids, double[] etasHess) {
       int numOff = _dinfo.numStart();
       for(int cid = 0; cid < _dinfo._nums; ++cid){
         double NA = _dinfo._numMeans[cid];
@@ -602,35 +612,52 @@ public abstract class GLMTask  {
         double scale = _dinfo._normMul == null?1:_dinfo._normMul[cid];
         if(c.isSparseZero()){
           double g = 0;
+          double hess = 9;
           int nVals = c.getSparseDoubles(vals,ids,NA);
-          for(int i = 0; i < nVals; ++i)
-            g += vals[i]*scale*etas[ids[i]];
+          for(int i = 0; i < nVals; ++i) {
+            g += vals[i] * scale * etas[ids[i]]; // sum over contributions from all rows of the chunk for beta j say
+            hess += _calculateHess?vals[i]*vals[i]*scale*scale*etas[ids[i]]:0;
+          }
           _gradient[numOff+cid] = g;
-        } else if(c.isSparseNA()){
+          if (_calculateHess)
+            _invHessDiag[numOff+cid] = hess;
+        } else if(c.isSparseNA()) {
           double off = _dinfo._normSub == null?0:_dinfo._normSub[cid];
           double g = 0;
+          double hess = 0;
           int nVals = c.getSparseDoubles(vals,ids,NA);
-          for(int i = 0; i < nVals; ++i)
-            g += (vals[i]-off)*scale*etas[ids[i]];
+          for(int i = 0; i < nVals; ++i) {
+            g += (vals[i] - off) * scale * etas[ids[i]];
+            hess += _calculateHess?vals[i]*scale*vals[i]*scale*etasHess[ids[i]]:0;
+          }
           _gradient[numOff+cid] = g;
+          if (_calculateHess)
+            _invHessDiag[numOff+cid] = hess;
         } else {
           double off = _dinfo._normSub == null?0:_dinfo._normSub[cid];
           c.getDoubles(vals,0,vals.length,NA);
           double g = 0;
-          for(int i = 0; i < vals.length; ++i)
-            g += (vals[i]-off)*scale*etas[i];
+          double hess = 0;
+          for(int i = 0; i < vals.length; ++i) {
+            g += (vals[i] - off) * scale * etas[i];
+            hess += _calculateHess?vals[i]*scale*vals[i]*scale*etasHess[i]:0;
+          }
           _gradient[numOff+cid] = g;
+          if (_calculateHess)
+            _invHessDiag[numOff+cid] = hess;
         }
       }
     }
 
     public void map(Chunk [] chks) {
       _gradient = MemoryManager.malloc8d(_beta.length);
+      _invHessDiag = _calculateHess?MemoryManager.malloc8d(_beta.length):null;
       Chunk response = chks[chks.length-1];
       Chunk weights = _dinfo._weights?chks[_dinfo.weightChunkId()]:new C0DChunk(1,response._len);
       double [] ws = weights.getDoubles(MemoryManager.malloc8d(weights._len),0,weights._len);
       double [] ys = response.getDoubles(MemoryManager.malloc8d(weights._len),0,response._len);
       double [] etas = MemoryManager.malloc8d(response._len);
+      double [] etasHess = _calculateHess?MemoryManager.malloc8d(response._len):null;  // use to calculate Hessian
       if(_dinfo._offset)
         chks[_dinfo.offsetChunkId()].getDoubles(etas,0,etas.length);
       double sparseOffset = 0;
@@ -642,15 +669,17 @@ public abstract class GLMTask  {
       ArrayUtils.add(etas,sparseOffset + _beta[_beta.length-1]);
       double [] vals = MemoryManager.malloc8d(response._len);
       int [] ids = MemoryManager.malloc4(response._len);
-      computeCategoricalEtas(chks,etas,vals,ids);
-      computeNumericEtas(chks,etas,vals,ids);
-      computeGradientMultipliers(etas,ys,ws);
+      computeCategoricalEtas(chks,etas,vals,ids); // calculate intercept+transpose(xi)*beta for categorical columns
+      computeNumericEtas(chks,etas,vals,ids); // calculate intercept+transpose(xi)*beta for categorical columns
+      computeGradientMultipliers(etas,ys,ws,etasHess); // calculate wi*(pr(yi=1)-I(yi==1)) for each row and stored in etas and likelihood
       // walk the chunks again, add to the gradient
-      computeCategoricalGrads(chks,etas,vals,ids);
-      computeNumericGrads(chks,etas,vals,ids);
+      computeCategoricalGrads(chks,etas,vals,ids,etasHess); // calculate grads by summing over all rows and multiple with Xij
+      computeNumericGrads(chks,etas,vals,ids,etasHess);
       // add intercept
       _gradient[_gradient.length-1] = ArrayUtils.sum(etas);
-      if(_dinfo._normSub != null) {
+      if (_calculateHess)
+        _invHessDiag[_gradient.length-1] = ArrayUtils.sum(etasHess);
+      if(_dinfo._normSub != null) { // no need for correction here for hessian, did not include u/sigma anyway
         double icpt = _gradient[_gradient.length-1];
         for(int i = 0; i < _dinfo._nums; ++i) {
           if(chks[_dinfo._cats+i].isSparseZero()) {
@@ -664,12 +693,23 @@ public abstract class GLMTask  {
     @Override
     public final void reduce(GLMGradientTask gmgt){
       ArrayUtils.add(_gradient,gmgt._gradient);
+      if (_calculateHess)
+        ArrayUtils.add(_invHessDiag, gmgt._invHessDiag);
       _likelihood += gmgt._likelihood;
     }
     @Override public final void postGlobal(){
       ArrayUtils.mult(_gradient,_reg);
-      for(int j = 0; j < _beta.length - 1; ++j)
+      if (_calculateHess)
+        ArrayUtils.mult(_invHessDiag, _reg);
+      for(int j = 0; j < _beta.length - 1; ++j) {
         _gradient[j] += _currentLambda * _beta[j];
+        if (_calculateHess) {
+          double temp = _invHessDiag[j]+_currentLambda;
+          _invHessDiag[j] = 1.0/temp;
+        }
+      }
+      if (_calculateHess) // fix the intercept term for Hessian
+        _invHessDiag[_beta.length-1] = 1.0/_invHessDiag[_beta.length-1];
     }
   }
 
@@ -680,7 +720,7 @@ public abstract class GLMTask  {
       _glmf = new GLMWeightsFun(parms);
     }
 
-    @Override protected void computeGradientMultipliers(double [] es, double [] ys, double [] ws){
+    @Override protected void computeGradientMultipliers(double [] es, double [] ys, double [] ws, double[] eshess){
       double l = 0;
       for(int i = 0; i < es.length; ++i) {
         if (Double.isNaN(ys[i]) || ws[i] == 0) {
@@ -703,7 +743,7 @@ public abstract class GLMTask  {
       super(jobKey, dinfo, parms._obj_reg, lambda, beta);
       _glmf = new GLMWeightsFun(parms);
     }
-    @Override protected void computeGradientMultipliers(double [] es, double [] ys, double [] ws){
+    @Override protected void computeGradientMultipliers(double [] es, double [] ys, double [] ws, double[] esHess){
       double l = 0;
       for(int i = 0; i < es.length; ++i) {
         if (Double.isNaN(ys[i]) || ws[i] == 0) {
@@ -727,7 +767,7 @@ public abstract class GLMTask  {
       super(jobKey, dinfo, parms._obj_reg, lambda, beta);
       _glmf = new GLMWeightsFun(parms);
     }
-    @Override protected void computeGradientMultipliers(double [] es, double [] ys, double [] ws){
+    @Override protected void computeGradientMultipliers(double [] es, double [] ys, double [] ws, double [] esHess){
       double l = 0;
       for(int i = 0; i < es.length; ++i){
         double p = _glmf.linkInv(es[i]);
@@ -748,7 +788,7 @@ public abstract class GLMTask  {
     }
 
     @Override
-    protected void computeGradientMultipliers(double[] es, double[] ys, double[] ws) {
+    protected void computeGradientMultipliers(double[] es, double[] ys, double[] ws, double[] esHess) {
       for(int i = 0; i < es.length; ++i) {
         if(Double.isNaN(ys[i]) || ws[i] == 0){es[i] = 0; continue;}
         double e = es[i], w = ws[i];
@@ -756,6 +796,8 @@ public abstract class GLMTask  {
         double ym = 1.0 / (Math.exp(-e) + 1.0);
         if(ym != yr) _likelihood += w*((MathUtils.y_log_y(yr, ym)) + MathUtils.y_log_y(1 - yr, 1 - ym));
         es[i] = ws[i] * (ym - yr);
+        if (_calculateHess)
+          esHess[i] = es[i]*(-ym);
       }
     }
   }
@@ -767,7 +809,7 @@ public abstract class GLMTask  {
     }
 
     @Override
-    protected void computeGradientMultipliers(double[] es, double[] ys, double[] ws) {
+    protected void computeGradientMultipliers(double[] es, double[] ys, double[] ws, double[] esHess) {
       for(int i = 0; i < es.length; ++i) {
         double w = ws[i];
         if(w == 0 || Double.isNaN(ys[i])){

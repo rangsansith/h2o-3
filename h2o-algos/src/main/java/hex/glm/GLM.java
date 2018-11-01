@@ -1878,9 +1878,12 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
         assert beta.length == _dinfo.fullN() + 1;
         assert _parms._intercept || (beta[beta.length-1] == 0);
         GLMGradientTask gt;
-        if(_parms._family == Family.binomial && _parms._link == Link.logit)
-          gt = new GLMBinomialGradientTask(_job == null?null:_job._key,_dinfo,_parms,_l2pen, beta).doAll(_dinfo._adaptedFrame);
-        else if(_parms._family == Family.gaussian && _parms._link == Link.identity)
+        if(_parms._family == Family.binomial && _parms._link == Link.logit) {
+          gt = new GLMBinomialGradientTask(_job == null ? null : _job._key, _dinfo, _parms, _l2pen, beta);
+          if (_parms._solver.equals(Solver.COORDINATE_DESCENT))
+            gt.set_calculateHess(true); // enable the calculation of Hessian matrix
+          gt.doAll(_dinfo._adaptedFrame);
+        } else if(_parms._family == Family.gaussian && _parms._link == Link.identity)
           gt = new GLMGaussianGradientTask(_job == null?null:_job._key,_dinfo,_parms,_l2pen, beta).doAll(_dinfo._adaptedFrame);
         else if(_parms._family == Family.poisson && _parms._link == Link.log)
           gt = new GLMPoissonGradientTask(_job == null?null:_job._key,_dinfo,_parms,_l2pen, beta).doAll(_dinfo._adaptedFrame);
