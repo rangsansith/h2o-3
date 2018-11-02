@@ -15,10 +15,18 @@ public class OptimizationUtils {
   public static class GradientInfo extends Iced {
     public double _objVal;
     public double [] _gradient;
+    public double[] _invHessDiag;
 
     public GradientInfo(double objVal, double [] grad){
       _objVal = objVal;
       _gradient = grad;
+      _invHessDiag = null;
+    }
+
+    public GradientInfo(double objVal, double [] grad, double[] invhessdiag){
+      _objVal = objVal;
+      _gradient = grad;
+      _invHessDiag = invhessdiag;
     }
 
     public boolean isValid(){
