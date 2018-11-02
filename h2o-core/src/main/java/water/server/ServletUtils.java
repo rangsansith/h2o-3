@@ -25,7 +25,7 @@ import java.util.Arrays;
 public class ServletUtils {
   private static final ThreadLocal<Long> _startMillis = new ThreadLocal<>();
   private static final ThreadLocal<Integer> _status = new ThreadLocal<>();
-  public static final ThreadLocal<String> _userAgent = new ThreadLocal<>();
+  private static final ThreadLocal<String> _userAgent = new ThreadLocal<>();
 
   private ServletUtils() {
     // not instantiable
@@ -47,7 +47,7 @@ public class ServletUtils {
     return _status.get();
   }
 
-  protected static long getStartMillis() {
+  private static long getStartMillis() {
     return _startMillis.get();
   }
 
@@ -106,54 +106,48 @@ public class ServletUtils {
     return new InputStreamWrapper(is, boundary);
   }
 
-  public static void sendErrorResponse(HttpServletResponse response, Exception e, String uri) {
-    if (e instanceof H2OFailException) {
-      H2OFailException ee = (H2OFailException) e;
-      H2OError error = ee.toH2OError(uri);
+  public static void sendErrorResponse(HttpServletResponse response, Exception exception, String uri) {
+    if (exception instanceof H2OFailException) {
+      final H2OFailException ee = (H2OFailException) exception;
+      final H2OError error = ee.toH2OError(uri);
 
       Log.fatal("Caught exception (fatal to the cluster): " + error.toString());
       throw(H2O.fail(error.toString()));
     }
-    else if (e instanceof H2OAbstractRuntimeException) {
-      H2OAbstractRuntimeException ee = (H2OAbstractRuntimeException) e;
-      H2OError error = ee.toH2OError(uri);
+    else if (exception instanceof H2OAbstractRuntimeException) {
+      final H2OAbstractRuntimeException ee = (H2OAbstractRuntimeException) exception;
+      final H2OError error = ee.toH2OError(uri);
 
       Log.warn("Caught exception: " + error.toString());
       setResponseStatus(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-
-      // Note: don't use Schema.schema(version, error) because we have to work at bootstrap:
-      try {
-        @SuppressWarnings("unchecked")
-        String s = new H2OErrorV3().fillFromImpl(error).toJsonString();
-        response.getWriter().write(s);
-      }
-      catch (Exception ignore) {
-        ignore.printStackTrace();
-      }
+      writeResponseErrorBody(response, error);
     }
     else { // make sure that no Exception is ever thrown out from the request
-      H2OError error = new H2OError(e, uri);
+      final H2OError error = new H2OError(exception, uri);
 
       // some special cases for which we return 400 because it's likely a problem with the client request:
-      if (e instanceof IllegalArgumentException)
+      if (exception instanceof IllegalArgumentException) {
         error._http_status = HttpResponseStatus.BAD_REQUEST.getCode();
-      else if (e instanceof FileNotFoundException)
+      } else if (exception instanceof FileNotFoundException) {
         error._http_status = HttpResponseStatus.BAD_REQUEST.getCode();
-      else if (e instanceof MalformedURLException)
+      } else if (exception instanceof MalformedURLException) {
         error._http_status = HttpResponseStatus.BAD_REQUEST.getCode();
+      }
       setResponseStatus(response, error._http_status);
 
       Log.warn("Caught exception: " + error.toString());
+      writeResponseErrorBody(response, error);
+    }
+  }
 
-      // Note: don't use Schema.schema(version, error) because we have to work at bootstrap:
-      try {
-        @SuppressWarnings("unchecked")
-        String s = new H2OErrorV3().fillFromImpl(error).toJsonString();
-        response.getWriter().write(s);
-      }
-      catch (Exception ignore) {
-        ignore.printStackTrace();
-      }
+  private static void writeResponseErrorBody(HttpServletResponse response, H2OError error) {
+    // Note: don't use Schema.schema(version, error) because we have to work at bootstrap:
+    try {
+      @SuppressWarnings("unchecked")
+      final String s = new H2OErrorV3().fillFromImpl(error).toJsonString();
+      response.getWriter().write(s);
+    } catch (Exception e) {
+      e.printStackTrace();
     }
   }
 

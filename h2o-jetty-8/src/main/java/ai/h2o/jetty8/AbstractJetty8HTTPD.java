@@ -26,7 +26,6 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import water.H2O;
 import water.util.Log;
 
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -36,11 +35,11 @@ public abstract class AbstractJetty8HTTPD {
 
   private final H2O.BaseArgs _args;
 
-  protected String _ip;
-  protected int _port;
+  private String _ip;
+  private int _port;
 
   // Jetty server object.
-  protected Server _server;
+  private Server _server;
 
   protected AbstractJetty8HTTPD(H2O.BaseArgs args) {
     _args = args;
@@ -72,18 +71,7 @@ public abstract class AbstractJetty8HTTPD {
     return _ip;
   }
 
-  /**
-   * @return Server object
-   */
-  public Server getServer() {
-    return _server;
-  }
-
-  public void setServer(Server value) {
-    _server = value;
-  }
-
-  public void setup(String ip, int port) {
+  private void setup(String ip, int port) {
     _ip = ip;
     _port = port;
     System.setProperty("org.eclipse.jetty.server.Request.maxFormContentSize", Integer.toString(Integer.MAX_VALUE));
@@ -92,7 +80,7 @@ public abstract class AbstractJetty8HTTPD {
   /**
    * Choose a Port and IP address and start the Jetty server.
    *
-   * @throws Exception
+   * @throws Exception -
    */
   public void start(String ip, int port) throws Exception {
     setup(ip, port);
@@ -104,7 +92,7 @@ public abstract class AbstractJetty8HTTPD {
     }
   }
 
-  protected void createServer(Connector connector) throws Exception {
+  private void createServer(Connector connector) throws Exception {
     _server.setConnectors(new Connector[]{connector});
 
     if (_args.hash_login || _args.ldap_login || _args.kerberos_login || _args.pam_login) {
@@ -211,7 +199,7 @@ public abstract class AbstractJetty8HTTPD {
     return s;
   }
 
-  protected void startHttp() throws Exception {
+  private void startHttp() throws Exception {
     _server = makeServer();
 
     Connector connector=new SocketConnector();
@@ -225,7 +213,7 @@ public abstract class AbstractJetty8HTTPD {
   /**
    * This implementation is based on http://blog.denevell.org/jetty-9-ssl-https.html
    *
-   * @throws Exception
+   * @throws Exception -
    */
   private void startHttps() throws Exception {
     _server = makeServer();
@@ -259,7 +247,7 @@ public abstract class AbstractJetty8HTTPD {
    * Stop Jetty server after it has been started.
    * This is unlikely to ever be called by H2O until H2O supports graceful shutdown.
    *
-   * @throws Exception
+   * @throws Exception -
    */
   public void stop() throws Exception {
     if (_server != null) {
@@ -270,7 +258,7 @@ public abstract class AbstractJetty8HTTPD {
   /**
    * Hook up Jetty handlers.  Do this before start() is called.
    */
-  public void registerHandlers(HandlerWrapper handlerWrapper) {
+  private void registerHandlers(HandlerWrapper handlerWrapper) {
     // Both security and session handlers are already created (Note: we don't want to create a new separate session
     // handler just for ServletContextHandler - we want to have just one SessionHandler & SessionManager)
     ServletContextHandler context = new ServletContextHandler(
@@ -295,7 +283,7 @@ public abstract class AbstractJetty8HTTPD {
   public class AuthenticationHandler extends AbstractHandler {
     @Override
     public void handle(String target, Request baseRequest, HttpServletRequest request, HttpServletResponse response)
-            throws IOException, ServletException {
+            throws IOException {
 
       if (!_args.ldap_login && !_args.kerberos_login && !_args.pam_login) return;
 

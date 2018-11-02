@@ -55,7 +55,7 @@ class Jetty8DelegatingAuthenticator implements Authenticator {
 
   @Override
   public boolean secureResponse(ServletRequest request, ServletResponse response,
-                                boolean mandatory, Authentication.User validatedUser) throws ServerAuthException {
+                                boolean mandatory, Authentication.User validatedUser) {
     return true; // both BASIC and FORM return true
   }
 
