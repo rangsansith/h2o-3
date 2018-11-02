@@ -48,6 +48,9 @@ dependencies {
   testCompile "org.apache.httpcomponents:httpclient:4.1"
   testCompile "com.github.stefanbirkner:system-rules:1.18.0"
   testCompile "org.apache.derby:derby:10.14.2.0"
+
+  // Jetty needs to be here for tests
+  testRuntime project(':h2o-jetty-8')
 }
 
 apply from: "${rootDir}/gradle/dataCheck.gradle"
