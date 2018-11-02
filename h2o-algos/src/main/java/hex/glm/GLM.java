@@ -806,6 +806,7 @@ public class GLM extends ModelBuilder<GLMModel,GLMParameters,GLMOutput> {
           GLMBinomialGradientTask gt = new GLMBinomialGradientTask(_job._key, _dinfo, _parms, _state.l2pen(),betaCnd);
           gt.set_calculateHess(true);
           gt.doAll(_dinfo._adaptedFrame); // will give me grad, invHessDiag, likelihood
+          ComputationState.GramCOD gramCod = _state.computeGramCOD(betaCnd, s);
           ComputationState.GramXY gram = _state.computeGram(betaCnd,s); // change the beta coefficients here and calculate the likelihood with the new coefficients.
           long t2 = System.currentTimeMillis();
           if (!_state._lsNeeded && (Double.isNaN(gt._likelihood) || _state.objective(gt._beta, gt._likelihood) > _state.objective() + _parms._objective_epsilon)) {

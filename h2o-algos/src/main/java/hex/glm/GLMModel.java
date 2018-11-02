@@ -522,6 +522,8 @@ public class GLMModel extends Model<GLMModel,GLMModel.GLMParameters,GLMModel.GLM
     public double z = 0;
     public double l = 0;
     public double dev = Double.NaN;
+    public double prMinresp = 0.0;  // store pr(estimated yi=1)-yi
+    public double prOneMinpr = 0.0;  // store pr(estimated yi=1)*(1- pr(estimated yi=1))
   }
   public static class GLMWeightsFun extends Iced {
     final Family _family;
@@ -720,11 +722,20 @@ public class GLMModel extends Model<GLMModel,GLMModel.GLMParameters,GLMModel.GLM
 
     public GLMWeights computeWeights(double y, double eta, double off, double w, GLMWeights x) {
       double etaOff = eta + off;
-      x.mu = linkInv(etaOff);
+      x.mu = linkInv(etaOff); // prob estimated response = 1
       double var = variance(x.mu);//Math.max(1e-5, variance(x.mu)); // avoid numerical problems with 0 variance
       double d = linkDeriv(x.mu);
       x.w = w / (var * d * d);
       x.z = eta + (y - x.mu) * d;
+      likelihoodAndDeviance(y,x,w);
+      return x;
+    }
+
+    public GLMWeights computeWeightsCOD(double y, double eta, double off, double w, GLMWeights x) {
+      double etaOff = eta + off;
+      x.mu = linkInv(etaOff); // prob estimated response = 1
+      x.prMinresp=(y-x.mu)*w;
+      x.prOneMinpr = w*x.mu*(1-x.mu);
       likelihoodAndDeviance(y,x,w);
       return x;
     }

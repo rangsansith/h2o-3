@@ -545,6 +545,67 @@ public final class ComputationState {
   }
 
   /**
+   * COD with only hessian matrix.
+   */
+  public static final class GramCOD {
+    public final Gram gram;
+    final double[] beta;
+    final int[] activeCols;
+    int [] newCols;
+    private double [] grads;
+    public final double likelihood;
+
+    public GramCOD(Gram gram, double [] grads, double[] beta, int[] activeCols, int [] newActiveCols, double likelihood) {
+      this.gram = gram;
+      this.grads = grads;
+      this.beta = beta == null ? null : beta.clone();
+      this.activeCols = activeCols == null ? null : activeCols.clone();
+      this.newCols = newActiveCols;
+      this.likelihood = likelihood;
+    }
+
+    public boolean match(double[] beta, int[] activeCols) {
+      return Arrays.equals(this.beta, beta) && Arrays.equals(this.activeCols, activeCols);
+    }
+
+    static double [] mergeRow(int k, double [] xrowOld, double [] xrow,int [] newColsIds, double [][] xxUpdate){
+      for(int i = 0; i < newColsIds.length; ++i){
+        int j = newColsIds[i];
+        xrow[j] = xxUpdate[i][k];
+        for(int l = i == 0?0:newColsIds[i-1]+1; l < j; ++l)
+          xrow[l] = xrowOld[l-i];
+      }
+      int l = newColsIds.length;
+      for(int j = newColsIds[newColsIds.length-1]+1; j < xrow.length; ++j)
+        xrow[j] = xrowOld[j-l];
+      return xrow;
+    }
+    public static GramCOD addCols(double[] beta, final int[] newActiveCols, final int[] newColsIds, final GramCOD oldGram, final double[][] xxUpdate, final double[] gradUpdate) {
+      // update the expanded matrix cache
+      final double[][] xxCacheNew = new double[newActiveCols.length][];
+      final double[] gradsNew = new double[xxCacheNew.length];
+      double [][] xx = oldGram.gram.getXX();
+      for (int k = 0; k < newColsIds.length; ++k) {
+        int j = newColsIds[k];
+        xxCacheNew[j] = xxUpdate[k];
+        gradsNew[j] = gradUpdate[k];
+        for (int i = k == 0 ? 0 : newColsIds[k - 1] + 1; i < j; i++) {
+          xxCacheNew[i] = mergeRow(i, xx[i - k], new double[newActiveCols.length], newColsIds, xxUpdate);
+          gradsNew[i] = oldGram.grads[i - k];
+          if(oldGram.grads != null)gradsNew[i] = oldGram.grads[i - k];
+        }
+      }
+      int k = newColsIds.length;
+      for (int i = newColsIds[newColsIds.length - 1] + 1; i < gradsNew.length; ++i) {
+        xxCacheNew[i] = mergeRow(i, xx[i - k], new double[newActiveCols.length], newColsIds, xxUpdate);
+        gradsNew[i] = oldGram.grads[i - k];
+        if(oldGram.grads != null)gradsNew[i] = oldGram.grads[i - k];
+      }
+      return new GramCOD(new Gram(xxCacheNew), gradsNew, beta, newActiveCols, newColsIds, oldGram.likelihood);
+    }
+  }
+
+  /**
    * Cached state of COD (with covariate updates) solver.
    */
   public static final class GramXY {
@@ -556,8 +617,6 @@ public final class ComputationState {
     private double [] grads;
     public double yy;
     public final double likelihood;
-
-
 
     public GramXY(Gram gram, double[] xy, double [] grads, double[] beta, int[] activeCols, int [] newActiveCols, double yy, double likelihood) {
       this.gram = gram;
@@ -646,7 +705,70 @@ public final class ComputationState {
   }
 
   GramXY _currGram;
+  GramCOD _currGramCOD;
   GLMModel.GLMWeightsFun _glmw;
+
+
+  protected GramCOD computeNewGramCOD(DataInfo activeData, double [] beta, GLMParameters.Solver s){
+    double obj_reg = _parms._obj_reg;
+    if(_glmw == null) _glmw = new GLMModel.GLMWeightsFun(_parms);
+    GLMTask.GLMIterationCODTask gt = new GLMTask.GLMIterationCODTask(_job._key, activeData, _glmw, beta,_activeClass).doAll(activeData._adaptedFrame);
+    gt._gram.mul(obj_reg);
+    ArrayUtils.mult(gt._grad,obj_reg);
+    int [] activeCols = activeData.activeCols();
+    int [] zeros = gt._gram.findZeroCols();
+    GramCOD res;
+    if(_parms._family != Family.multinomial && zeros.length > 0) {
+      gt._gram.dropCols(zeros);
+      removeCols(zeros);
+      res = new ComputationState.GramCOD(gt._gram,ArrayUtils.removeIds(gt._grad, zeros),
+              gt._beta == null?null:ArrayUtils.removeIds(gt._beta, zeros),activeData().activeCols(),
+              null,gt._likelihood);
+    } else res = new GramCOD(gt._gram,gt._grad,beta == null?null:beta,activeCols,null,
+            gt._likelihood);
+
+    return res;
+  }
+  // get cached gram or incrementally update or compute new one
+  public GramCOD computeGramCOD(double [] beta, GLMParameters.Solver s){
+    double obj_reg = _parms._obj_reg;
+    boolean weighted = _parms._family != Family.gaussian || _parms._link != GLMParameters.Link.identity;
+
+    if(_currGramCOD == null) // no cached value, compute new one and store
+      return _currGramCOD = computeNewGramCOD(activeData(),beta,s);
+    DataInfo activeData = activeData();
+    assert beta == null || beta.length == activeData.fullN()+1;
+    int [] activeCols = activeData.activeCols();
+    if (Arrays.equals(_currGramCOD.activeCols,activeCols))
+      return (!weighted || Arrays.equals(_currGramCOD.beta, beta)) ? _currGramCOD :
+              (_currGramCOD = computeNewGramCOD(activeData, beta, s));
+    if(_glmw == null) _glmw = new GLMModel.GLMWeightsFun(_parms);
+    // check if we need full or just incremental update
+    if(_currGram != null){
+      int [] newCols = ArrayUtils.sorted_set_diff(activeCols,_currGram.activeCols);
+      int [] newColsIds = newCols.clone();
+      int jj = 0;
+      boolean matches = true;
+      int k = 0;
+      for (int i = 0; i < activeCols.length; ++i) {
+        if (jj < newCols.length && activeCols[i] == newCols[jj]) {
+          newColsIds[jj++] = i;
+          matches = matches && (beta == null || beta[i] == 0);
+        } else {
+          matches = matches && (beta == null || beta[i] == _currGram.beta[k++]);
+        }
+      }
+      if(!weighted || matches) {
+        GLMTask.GLMIncrementalGramTask gt = new GLMTask.GLMIncrementalGramTask(newColsIds, activeData, _glmw, beta).doAll(activeData._adaptedFrame); // dense
+        for (double[] d : gt._gram)
+          ArrayUtils.mult(d, obj_reg);
+        ArrayUtils.mult(gt._xy, obj_reg);
+        // glue the update and old gram together
+        return _currGramCOD = GramCOD.addCols(beta, activeCols, newColsIds, _currGramCOD, gt._gram, gt._xy);
+      }
+    }
+    return _currGramCOD = computeNewGramCOD(activeData,beta,s);
+  }
 
 
   // get cached gram or incrementally update or compute new one
